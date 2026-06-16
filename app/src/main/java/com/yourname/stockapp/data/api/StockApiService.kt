@@ -10,4 +10,11 @@ interface StockApiService {
         @Query("symbol") symbol: String,
         @Query("apikey") apiKey: String
     ): StockResponse
+
+    @GET("query")
+    suspend fun searchSymbols(
+        @Query("function") function: String = "SYMBOL_SEARCH",
+        @Query("keywords") keywords: String,
+        @Query("apikey") apiKey: String
+    ): SymbolSearchResponse
 }

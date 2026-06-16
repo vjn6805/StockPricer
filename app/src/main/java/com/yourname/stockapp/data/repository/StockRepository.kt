@@ -1,6 +1,8 @@
 package com.yourname.stockapp.data.repository
 
 import com.yourname.stockapp.data.api.StockApiService
+import com.yourname.stockapp.data.api.StockResponse
+import com.yourname.stockapp.data.api.SymbolSearchResponse
 import com.yourname.stockapp.model.StockQuote
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -14,9 +16,24 @@ sealed class Result<out T> {
 class StockRepository @Inject constructor(
     private val apiService: StockApiService
 ) {
-    suspend fun getStockQuote(symbol: String): Result<StockQuote> {
+    suspend fun getStockQuote(query: String): Result<StockQuote> {
         return try {
-            val response = apiService.getGlobalQuote(symbol = symbol, apiKey = "DKTQ66QTDFKFYX7M")
+            val searchResponse = apiService.searchSymbols(keywords = query, apiKey = API_KEY)
+            val searchError = apiError(searchResponse.errorMessage, searchResponse.note, searchResponse.information)
+            if (searchError != null) return Result.Error(searchError)
+
+            val match = searchResponse.bestMatches
+                ?.firstOrNull { it.type?.contains("Equity", ignoreCase = true) == true && it.region == "United States" }
+                ?: searchResponse.bestMatches?.firstOrNull()
+
+            if (match?.symbol == null) {
+                return Result.Error("No company found for \"$query\".")
+            }
+
+            val response = apiService.getGlobalQuote(symbol = match.symbol, apiKey = API_KEY)
+            val quoteError = apiError(response.errorMessage, response.note, response.information)
+            if (quoteError != null) return Result.Error(quoteError)
+
             val quote = response.globalQuote
             if (quote != null && quote.symbol != null) {
                 Result.Success(
@@ -25,24 +42,25 @@ class StockRepository @Inject constructor(
                         price = quote.price ?: "0.0",
                         change = quote.change ?: "0.0",
                         changePercent = quote.changePercent ?: "0.0%",
-                        companyName = quote.symbol
+                        companyName = match.name ?: quote.symbol
                     )
                 )
-            } else if (response.errorMessage != null) {
-                Result.Error(response.errorMessage)
-            } else if (response.note != null) {
-                Result.Error("API call frequency limit reached. Please try again later.")
-            } else if (response.information != null) {
-                Result.Error(response.information)
             } else {
-                Result.Error("Symbol not found or empty response.")
+                Result.Error("Could not load price for ${match.name ?: match.symbol}.")
             }
         } catch (e: Exception) {
             Result.Error(e.message ?: "An unexpected error occurred.")
         }
     }
 
+    private fun apiError(errorMessage: String?, note: String?, information: String?): String? {
+        if (errorMessage != null) return errorMessage
+        if (note != null) return "API call frequency limit reached. Please try again later."
+        if (information != null) return information
+        return null
+    }
+
     companion object {
-        private const val API_KEY = "demo"
+        private const val API_KEY = "NP6BNTWEIYUZISYL"
     }
 }
